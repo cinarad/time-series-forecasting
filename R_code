@@ -1,0 +1,263 @@
+global economic indicators dataset (global_economy) - Brazil:
+
+# exploring the dataset:
+head(global_economy)
+
+## # A tsibble: 6 x 9 [1Y]
+## # Key:       Country [1]
+##   Country     Code   Year         GDP Growth   CPI Imports Exports Population
+##   <fct>       <fct> <dbl>       <dbl>  <dbl> <dbl>   <dbl>   <dbl>      <dbl>
+## 1 Afghanistan AFG    1960  537777811.     NA    NA    7.02    4.13    8996351
+## 2 Afghanistan AFG    1961  548888896.     NA    NA    8.10    4.45    9166764
+## 3 Afghanistan AFG    1962  546666678.     NA    NA    9.35    4.88    9345868
+## 4 Afghanistan AFG    1963  751111191.     NA    NA   16.9     9.17    9533954
+## 5 Afghanistan AFG    1964  800000044.     NA    NA   18.1     8.89    9731361
+## 6 Afghanistan AFG    1965 1006666638.     NA    NA   21.4    11.3     9938414
+
+# Filter Country Brazil as ‘bra_eco’ from ‘global_economy’:
+bra_eco <- global_economy |>
+  filter(Country == 'Brazil')
+head(bra_eco)
+## # A tsibble: 6 x 9 [1Y]
+## # Key:       Country [1]
+##   Country Code   Year          GDP Growth   CPI Imports Exports Population
+##   <fct>   <fct> <dbl>        <dbl>  <dbl> <dbl>   <dbl>   <dbl>      <dbl>
+## 1 Brazil  BRA    1960 15165569913. NA        NA    7.12    7.06   72207554
+## 2 Brazil  BRA    1961 15236854859. 10.3      NA    7.34    7.28   74351763
+## 3 Brazil  BRA    1962 19926293839.  5.22     NA    5.19    3.87   76573248
+## 4 Brazil  BRA    1963 23021477292.  0.875    NA    9.11    9.04   78854019
+## 5 Brazil  BRA    1964 21211892260.  3.49     NA    5.68    6.39   81168654
+## 6 Brazil  BRA    1965 21790035117.  3.05     NA    5.56    7.74   83498020
+# Finding the GDP per capita of Brazil and adding on the dataset and plotting a   graph:
+bra_eco <- bra_eco |>
+  mutate(GDP_per_capita = GDP / Population)
+
+bra_eco |>
+  autoplot(GDP_per_capita)+
+  labs(title= "GDP per capita", y = "$US")
+
+# The data exhibits fluctuations in overall growth trend, as well as periods of decline and subsequent growth. To address the variance instability in the data and prepare it for           modeling, we applied the Guerrero transformation. This transformation, with a lambda value of -0.133254, was chosen to tailor the data to our modeling needs. The transformation           applied serves to stabilize variance, reduce heteroscedasticity, and smooth the trend (see below).
+bra_eco |>
+  features(GDP, features = guerrero)
+## # A tibble: 1 × 2
+##   Country lambda_guerrero
+##   <fct>             <dbl>
+## 1 Brazil           -0.133
+bra_eco_box <- bra_eco |>
+  mutate(GDP_per_capita_bx = box_cox(GDP_per_capita, -0.133254))
+  autoplot(bra_eco_box, GDP_per_capita_bx) +
+  labs(title = "Box-Cox Transformed GDP per capita", y = "Transformed Value")
+
+# Filtering the transformed dataset withholding the last five years as a test set:
+train <- bra_eco_box |> 
+  filter(Year < 2013)
+test <- bra_eco_box |>
+  filter(Year >= 2013)
+
+benchmark_models <- train |>
+  model(
+    NAIVE = NAIVE(GDP_per_capita_bx),
+    MEAN = MEAN(GDP_per_capita_bx),
+    DRIFT = RW(GDP_per_capita_bx ~ drift()),
+  )
+# Forecast the test set periods using the fitted benchmark models:
+fc <- benchmark_models |>
+  forecast(h = "5 years")
+
+fc |>
+  autoplot(bra_eco_box, level = NULL) +
+  autolayer(test, GDP_per_capita_bx, colour = "purple")+
+  labs(y = "GDP per Capita",
+    title = "Forecasts for 5 years of Brazil GDP per capita.") +
+  guides(colour = guide_legend(title = "Forecast"))
+
+forecast_results <- benchmark_models |>
+  forecast(h = "5 years")
+
+forecast_results |>
+   accuracy(bra_eco_box)
+## # A tibble: 3 × 11
+##   .model Country .type      ME   RMSE    MAE   MPE  MAPE  MASE RMSSE  ACF1
+##   <chr>  <fct>   <chr>   <dbl>  <dbl>  <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
+## 1 DRIFT  Brazil  Test  -0.144  0.164  0.144  -2.72  2.72  2.73  2.59 0.448
+## 2 MEAN   Brazil  Test   0.605  0.607  0.605  11.4  11.4  11.5   9.57 0.318
+## 3 NAIVE  Brazil  Test  -0.0550 0.0703 0.0550 -1.04  1.04  1.04  1.11 0.318
+
+#  Summarise the turnover data for Queensland, Australia, as well as the aggregated turnover for Queensland using the summarise() function:
+qld <- aus_retail |>
+  filter(State == "Queensland")
+qld <- qld |>
+  summarise(Total_Turnover = sum(Turnover))
+
+qld
+## # A tsibble: 441 x 2 [1M]
+##       Month Total_Turnover
+##       <mth>          <dbl>
+##  1 1982 Apr           883.
+##  2 1982 May           893.
+##  3 1982 Jun           904.
+##  4 1982 Jul           940.
+##  5 1982 Aug           915.
+##  6 1982 Sep           940.
+##  7 1982 Oct           918.
+##  8 1982 Nov           976 
+##  9 1982 Dec          1279.
+## 10 1983 Jan           918.
+## # … with 431 more rows
+# Observing the frequency:
+qld|>
+  autoplot(Total_Turnover)+
+  labs(title = "Queensland Total Turnover")
+
+qld|>
+  autoplot(log(Total_Turnover))+
+  labs(title = "Queensland Total Turnover")
+
+# Creating training set excluding the last 1 year:
+train_1 <- qld |>
+  filter(year(Month) < 2018)
+
+# Creating training set excluding the last 2 years:
+train_2  <- qld |>
+  filter(year(Month) < 2017)
+
+# Creating training set excluding the last 3 years:
+train_3 <- qld |>
+  filter(year(Month) < 2016)
+
+# Forecasting 1 year - train 1:
+fit_1 <- train_1 |>
+  model(SNAIVE(log(Total_Turnover)))
+ fc_1 <- fit_1 |> 
+  forecast(h = "1 year")
+autoplot(qld, Total_Turnover, colour = "black") +
+  autolayer(
+    train_1, Total_Turnover, colour = "blue")+
+   autolayer(fc_1, series = "1-year Forecast", colour = "red") +
+labs(y = "Log Total Turnover",
+    title = "Train 1 - Forecasts for 1 year Queensland 
+    Total Turnover.") + 
+guides(colour = guide_legend(title = "Forecast"))
+
+
+# Forecasting 1 year - train 2:
+fit_2 <- train_2 |>
+  model(SNAIVE(log(Total_Turnover)))
+ fc_2 <- fit_2 |> 
+  forecast(h = "1 year")
+autoplot(qld, Total_Turnover, colour = "black") +
+  autolayer(
+    train_2, Total_Turnover, colour = "blue") +
+   autolayer(fc_2, series = "1-year Forecast", colour = "red") +
+   labs(y = "Total Turnover",
+     title = "Train 2 - Forecasts for 1 year Queensland Total Turnover.") +  
+guides(colour = guide_legend(title = "Forecast"))
+
+
+# Forecasting 1 year - train 3:
+fit_3 <- train_3 |>
+  model(SNAIVE(log(Total_Turnover)))
+ fc_3 <- fit_3 |> 
+  forecast(h = "1 year")
+autoplot(qld, Total_Turnover, colour = "black") +
+  autolayer(train_3, Total_Turnover, colour = "blue") +
+  autolayer(fc_3, series = "1-year Forecast", colour = "red") +
+  labs(y = "Total Turnover",
+    title = "Train 3 - Forecasts for 1 year Queensland Total Turnover.") 
+
+# STL Decomposition method for Training 1:
+dcmp_1 <- train_1 |>
+  model(stlf = decomposition_model(
+    STL(log(Total_Turnover) ~ trend(window = 7), robust = TRUE),
+    NAIVE(season_adjust)))
+dc_fc1 <- dcmp_1 |>
+  forecast( h = "1 year")
+dc_fc1 |>
+  autoplot() +
+  autolayer(train_1, Total_Turnover) +
+  labs(y = "Total Turnover",
+    title = "Train 1 - STL Decomposition with 1-year Forecast")
+
+# STL Decomposition method for Training 2:
+dcmp_2 <- train_2 |>
+  model(stlf = decomposition_model(
+    STL(log(Total_Turnover) ~ trend(window = 7), robust = TRUE),
+    NAIVE(season_adjust)))
+dc_fc2 <- dcmp_2 |>
+  forecast( h = "1 year")
+dc_fc2 |>
+  autoplot(qld) +
+  autolayer(train_2, Total_Turnover) +
+  labs( y = "Total Turnover",
+        title = "Train 2 - STL Decomposition with 1-year Forecast")
+
+# STL Decomposition method for Training 3:
+dcmp_3 <- train_3 |>
+  model(stlf = decomposition_model(
+    STL(log(Total_Turnover) ~ trend(window = 7), robust = TRUE),
+    NAIVE(season_adjust)))
+dc_fc3 <- dcmp_3 |>
+  forecast( h = "1 year")
+dc_fc3 |>
+  autoplot(qld) +
+  autolayer(train_3, Total_Turnover) +
+  labs( y = "Total Turnover",
+        title = "Train 3 - STL Decomposition with 1-year Forecast")
+
+# Calculate MAPE for Seasonal Naive forecasts
+mape_snaive <- c(
+  accuracy(fc_1, qld)$MAPE,
+  accuracy(fc_2, qld)$MAPE,
+  accuracy(fc_3, qld)$MAPE)
+# Calculate MAPE for STL decomposition forecasts
+mape_stl <- c(
+  accuracy(dc_fc1, qld)$MAPE,
+  accuracy(dc_fc2, qld)$MAPE,
+  accuracy(dc_fc3, qld)$MAPE)
+
+# Create a comparison tibble
+comparison_table <- tibble(
+  Training_Set = c("train 1 - excluded 1 Year", " train 2 - excluded 2 Years", "train 3 -  excluded 3 Years"),
+  Seasonal_Naive_MAPE = mape_snaive,
+  STL_Decomposition_MAPE = mape_stl)
+
+# Print the comparison table
+print(comparison_table)
+## # A tibble: 3 × 3
+##   Training_Set                  Seasonal_Naive_MAPE STL_Decomposition_MAPE
+##   <chr>                                       <dbl>                  <dbl>
+## 1 "train 1 - excluded 1 Year"                  2.05                   1.24
+## 2 " train 2 - excluded 2 Years"                1.42                   1.36
+## 3 "train 3 - excluded 3 Years"                 2.58                   2.28
+
+
+#Use the New Zealand quarterly unemployment data described above.
+
+# Importing dataset:
+# Read the Excel file into a data frame
+NZ_Unemployment_Quarterly <- read.csv("C:/Users/cinar/Desktop/AUT/Forecasting/Assignment_01/NZ_Unemployment_Quarterly.csv")
+
+# Preparing the dataset and converting it into a tsibble format: 
+df <- NZ_Unemployment_Quarterly |>
+  mutate(Year_quarter = yearquarter(Year)) |>
+  as_tsibble(index = Year_quarter) |>
+  select(-Year, -X, -X.1)
+
+head(df)
+## # A tsibble: 6 x 2 [1Q]
+##   Total_unemployment Year_quarter
+##                <dbl>        <qtr>
+## 1               112.      2001 Q1
+## 2               104.      2001 Q2
+## 3               102.      2001 Q3
+## 4               107.      2001 Q4
+## 5               114.      2002 Q1
+## 6               104.      2002 Q2
+
+
+
+
+
+
+
+
